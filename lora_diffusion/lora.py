@@ -16,6 +16,11 @@ try:
     safetensors_available = True
 except ImportError:
     from .safe_open import safe_open
+    '''
+    . 在模块或包的上下文中表示当前目录或当前包
+    .safe_open指lora_diffusion/safe_open.py
+    从 safe_open.py 导入一个函数或类safe_open
+    '''
 
     def safe_save(
         tensors: Dict[str, torch.Tensor],
@@ -34,6 +39,12 @@ class LoraInjectedLinear(nn.Module):
         self, in_features, out_features, bias=False, r=4, dropout_p=0.1, scale=1.0
     ):
         super().__init__()
+        '''
+        Python 类的子类中常用的表达式，作用是调用父类（或超类）的 __init__ 方法
+        在面向对象编程中实现继承和初始化子类的常用方法
+        super().__init__() 使得子类可以在继承父类的基础上，添加或修改自己的初始化逻辑
+
+        '''
 
         if r > min(in_features, out_features):
             raise ValueError(
@@ -46,15 +57,38 @@ class LoraInjectedLinear(nn.Module):
         self.lora_up = nn.Linear(r, out_features, bias=False)
         self.scale = scale
         self.selector = nn.Identity()
+        '''
+        selector 的属性被初始化为一个 nn.Identity() 模块
+        nn.Identity()是一个恒等操作，当输入传递给它时，它会返回与输入完全相同的输出
+        '''
 
         nn.init.normal_(self.lora_down.weight, std=1 / r)
+        '''
+        nn.init.normal_ 是权重初始化方法，用于将给定的张量按照正态分布进行初始化
+        '''
+
         nn.init.zeros_(self.lora_up.weight)
 
     def forward(self, input):
+        '''
+        模块的输出是主线性层的输出和上述LoRA部分的输出之和。
+        获得两者的结合效果：一个简单的线性变换和一个更复杂的LoRA变换。
+        '''
         return (
             self.linear(input)
             + self.dropout(self.lora_up(self.selector(self.lora_down(input))))
+            '''
+            Dropout是一种正则化技术，它在训练神经网络时使用。
+            当应用Dropout到一个神经网络层时，在每次训练迭代中随机地丢弃该层输出的一部分激活值，即将它们设置为0。
+            这意味着这些被丢弃的激活值在当前训练步骤中不会对后续层或损失函数产生任何影响。
+            具体来说：
+            随机选择：在每次前向传播时，每个激活值都有一定的概率（通常是预定义的Dropout概率，如0.5）被设置为0。
+            缩放：在Dropout后，为了保持激活值的总体期望不变，剩余的非零激活值会被缩放。例如，如果Dropout率为0.5，那么剩余的激活值会被乘以2。
+            Dropout的直观解释是，它强迫网络不过于依赖任何单个激活值或神经元，从而提高了模型的鲁棒性和泛化能力。
+            '''           
             * self.scale
+            #尺度因子 调整LoRA部分的贡献与主线性层的贡献
+
         )
 
     def realize_as_lora(self):
