@@ -53,6 +53,7 @@ class LoraInjectedLinear(nn.Module):
         self.r = r
         self.linear = nn.Linear(in_features, out_features, bias)
         self.lora_down = nn.Linear(in_features, r, bias=False)
+        #ΔW=A*B
         self.dropout = nn.Dropout(dropout_p)
         self.lora_up = nn.Linear(r, out_features, bias=False)
         self.scale = scale
@@ -77,28 +78,32 @@ class LoraInjectedLinear(nn.Module):
         return (
             self.linear(input)
             + self.dropout(self.lora_up(self.selector(self.lora_down(input))))
-            '''
-            Dropout是一种正则化技术，它在训练神经网络时使用。
-            当应用Dropout到一个神经网络层时，在每次训练迭代中随机地丢弃该层输出的一部分激活值，即将它们设置为0。
-            这意味着这些被丢弃的激活值在当前训练步骤中不会对后续层或损失函数产生任何影响。
-            具体来说：
-            随机选择：在每次前向传播时，每个激活值都有一定的概率（通常是预定义的Dropout概率，如0.5）被设置为0。
-            缩放：在Dropout后，为了保持激活值的总体期望不变，剩余的非零激活值会被缩放。例如，如果Dropout率为0.5，那么剩余的激活值会被乘以2。
-            Dropout的直观解释是，它强迫网络不过于依赖任何单个激活值或神经元，从而提高了模型的鲁棒性和泛化能力。
-            '''           
             * self.scale
-            #尺度因子 调整LoRA部分的贡献与主线性层的贡献
+        )            
+        '''
+        Dropout是一种正则化技术，它在训练神经网络时使用。
+        当应用Dropout到一个神经网络层时，在每次训练迭代中随机地丢弃该层输出的一部分激活值，即将它们设置为0。
+        这意味着这些被丢弃的激活值在当前训练步骤中不会对后续层或损失函数产生任何影响。
+        具体来说：
+        随机选择：在每次前向传播时，每个激活值都有一定的概率（通常是预定义的Dropout概率，如0.5）被设置为0。
+        缩放：在Dropout后，为了保持激活值的总体期望不变，剩余的非零激活值会被缩放。例如，如果Dropout率为0.5，那么剩余的激活值会被乘以2。
+        Dropout的直观解释是，它强迫网络不过于依赖任何单个激活值或神经元，从而提高了模型的鲁棒性和泛化能力。
+        '''           
+        #尺度因子 调整LoRA部分的贡献与主线性层的贡献
 
-        )
-
+        
+    #获取LoRA部分权重
     def realize_as_lora(self):
         return self.lora_up.weight.data * self.scale, self.lora_down.weight.data
+
 
     def set_selector_from_diag(self, diag: torch.Tensor):
         # diag is a 1D tensor of size (r,)
         assert diag.shape == (self.r,)
         self.selector = nn.Linear(self.r, self.r, bias=False)
+        #仅更改权重
         self.selector.weight.data = torch.diag(diag)
+        #生成r,r的对角权重矩阵 对角值由diag初始化 对输入向量每个值进行对应特定位置的放缩
         self.selector.weight.data = self.selector.weight.data.to(
             self.lora_up.weight.device
         ).to(self.lora_up.weight.dtype)
@@ -135,6 +140,22 @@ class LoraInjectedConv2d(nn.Module):
             groups=groups,
             bias=bias,
         )
+        '''
+        空洞dilation影响卷积核中元素的间隔，但不改变输入或输出的大小。
+        考虑一个一维卷积和一个dilation值为2的情况。一个普通的3元素卷积核可能会这样应用：
+        x[0],x[1],x[2]，而带有空洞的卷积核则可能会应用于x[0],x[2],x[4]。
+
+        stride决定了卷积核在输入上的移动速度，可以改变输出的大小。
+        padding通过在输入边缘添加额外的0值来调整输入的大小，从而影响输出的大小。
+
+        groups参数用于指定将输入通道和输出通道分成多少组来进行卷积
+        '''
+        '''
+        一维卷积 1D卷积
+        卷积核和输入信号都是一维的
+        一个一维卷积核在一个一维输入信号上滑动并应用
+        一维卷积的应用：音频处理 时间序列分析 自然语言处理
+        '''
 
         self.lora_down = nn.Conv2d(
             in_channels=in_channels,
@@ -155,6 +176,15 @@ class LoraInjectedConv2d(nn.Module):
             padding=0,
             bias=False,
         )
+        '''
+        lora_up主要作用是改变通道数量 而不是空间维度
+
+        kernel_size=1→点对点卷积或 1×1 卷积
+        它仅在通道维度上进行操作，实现不同通道间的线性组合
+        1×1 卷积的主要应用是：
+        改变通道的数量：例如，减少或增加特征图的深度。
+        实现跨通道的交互：使一个通道的信息可以影响到其他通道。
+        '''
         self.selector = nn.Identity()
         self.scale = scale
 
@@ -216,10 +246,16 @@ def _find_children(
     # For each target find every linear_class module that isn't a child of a LoraInjectedLinear
     for parent in model.modules():
         for name, module in parent.named_children():
+            #当前的 module 是否是 search_class 列表中的任何一个类的实例 若是 生成一个包含其父模块、名称和自身的元组
             if any([isinstance(module, _class) for _class in search_class]):
                 yield parent, name, module
 
 
+'''
+在给定的模型 model 中查找所有属于特定类或类列表（由 search_class 定义）的模块
+这些模块应该是某个指定类或类集合（由 ancestor_class 定义）的直接或间接后代
+函数返回这些匹配模块，以及它们的父模块和引用名称。
+'''
 def _find_modules_v2(
     model,
     ancestor_class: Optional[Set[str]] = None,
@@ -286,6 +322,7 @@ def _find_modules_old(
 _find_modules = _find_modules_v2
 
 
+#在UNet中找到目标模块进行线性层替换
 def inject_trainable_lora(
     model: nn.Module,
     target_replace_module: Set[str] = DEFAULT_TARGET_REPLACE,
@@ -321,6 +358,7 @@ def inject_trainable_lora(
             dropout_p=dropout_p,
             scale=scale,
         )
+        #_child_module.bias is not None返回True 或 False
         _tmp.linear.weight = weight
         if bias is not None:
             _tmp.linear.bias = bias
@@ -328,6 +366,7 @@ def inject_trainable_lora(
         # switch the module
         _tmp.to(_child_module.weight.device).to(_child_module.weight.dtype)
         _module._modules[name] = _tmp
+        #将模型 _module 中名为 name 的子模块替换为 _tmp 模块 即LoRA
 
         require_grad_params.append(_module._modules[name].lora_up.parameters())
         require_grad_params.append(_module._modules[name].lora_down.parameters())
@@ -338,11 +377,14 @@ def inject_trainable_lora(
 
         _module._modules[name].lora_up.weight.requires_grad = True
         _module._modules[name].lora_down.weight.requires_grad = True
+        #requires_grad 为 True 时，该张量在前向传播中的所有操作都会被跟踪和记录，以便在反向传播时计算梯度。
+
         names.append(name)
 
     return require_grad_params, names
 
 
+#在UNet扩展中找到目标模块进行线性层、卷积层替换
 def inject_trainable_lora_extended(
     model: nn.Module,
     target_replace_module: Set[str] = UNET_EXTENDED_TARGET_REPLACE,
