@@ -456,6 +456,7 @@ def inject_trainable_lora_extended(
     return require_grad_params, names
 
 
+#提取AB
 def extract_lora_ups_down(model, target_replace_module=DEFAULT_TARGET_REPLACE):
 
     loras = []
@@ -473,6 +474,7 @@ def extract_lora_ups_down(model, target_replace_module=DEFAULT_TARGET_REPLACE):
     return loras
 
 
+#提取LoRA权重
 def extract_lora_as_tensor(
     model, target_replace_module=DEFAULT_TARGET_REPLACE, as_fp16=True
 ):
@@ -497,6 +499,7 @@ def extract_lora_as_tensor(
     return loras
 
 
+#保存权重
 def save_lora_weight(
     model,
     path="./lora.pt",
@@ -512,11 +515,14 @@ def save_lora_weight(
     torch.save(weights, path)
 
 
+
 def save_lora_as_json(model, path="./lora.json"):
     weights = []
     for _up, _down in extract_lora_ups_down(model):
         weights.append(_up.weight.detach().cpu().numpy().tolist())
         weights.append(_down.weight.detach().cpu().numpy().tolist())
+        #确保权重张量与计算图断开连接，这样就不会跟踪它们在前向传播中的历史
+        #这在保存权重时是很有用的，因为我们通常只对权重本身感兴趣，而不是它们的计算历史。
 
     import json
 
@@ -524,6 +530,7 @@ def save_lora_as_json(model, path="./lora.json"):
         json.dump(weights, f)
 
 
+#将多个模块中的 LoRA（和可能的嵌入向量）保存到一个单独的 safetensor 文件中
 def save_safeloras_with_embeds(
     modelmap: Dict[str, Tuple[nn.Module, Set[str]]] = {},
     embeds: Dict[str, torch.Tensor] = {},
@@ -566,6 +573,7 @@ def save_safeloras(
     return save_safeloras_with_embeds(modelmap=modelmap, outpath=outpath)
 
 
+#从多个 PyTorch .pt 文件中转换 LoRA 权重，并将它们（以及可能的嵌入向量）保存到一个单独的 safetensor 文件中。
 def convert_loras_to_safeloras_with_embeds(
     modelmap: Dict[str, Tuple[str, Set[str], int]] = {},
     embeds: Dict[str, torch.Tensor] = {},
@@ -611,6 +619,7 @@ def convert_loras_to_safeloras(
     convert_loras_to_safeloras_with_embeds(modelmap=modelmap, outpath=outpath)
 
 
+#从已加载的 safetensor 文件中解析出 LoRA 权重及其相关信息，并以结构化的方式返回这些信息
 def parse_safeloras(
     safeloras,
 ) -> Dict[str, Tuple[List[nn.parameter.Parameter], List[int], List[str]]]:
@@ -672,6 +681,7 @@ def parse_safeloras(
     return loras
 
 
+
 def parse_safeloras_embeds(
     safeloras,
 ) -> Dict[str, torch.Tensor]:
@@ -728,6 +738,8 @@ def collapse_lora(model, alpha=1.0):
                 )
                 .type(_child_module.linear.weight.dtype)
                 .to(_child_module.linear.weight.device)
+                #@ 矩阵乘法
+
             )
 
         else:
@@ -743,6 +755,18 @@ def collapse_lora(model, alpha=1.0):
                 .type(_child_module.conv.weight.dtype)
                 .to(_child_module.conv.weight.device)
             )
+            '''
+            LoRA涉及两个矩阵的乘积 矩阵乘法本质上涉及二维数组
+            当我们说LoRA权重时，我们通常指的是两个二维矩阵
+
+            flatten(start_dim=1) 将每个输出通道的所有卷积核从三维展平到一维，使其可以与 LoRA 权重进行矩阵乘法。
+            start_dim=1从第二个维度开始展平，在卷积权重的结构中，第二个维度是输入通道
+            卷积权重的结构为 O×I×H×W
+            以每个输出通道为单位进行矩阵乘法 可以将每个输出通道的所有卷积核看作一个长向量，并与LoRA权重进行矩阵乘法
+            当对卷积权重进行低秩逼近时，实际上是在为每个输出通道的权重找到一个低秩逼近
+
+            reshape 用于将结果重新整形为与原始卷积权重相同的形状,确保它可以在卷积操作中正确使用
+            '''
 
 
 def monkeypatch_or_replace_lora(
