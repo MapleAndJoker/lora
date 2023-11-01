@@ -783,6 +783,12 @@ def monkeypatch_or_replace_lora(
             if isinstance(_child_module, LoraInjectedLinear)
             else _child_module
         )
+        '''
+        如果_child_module是LoraInjectedLinear的一个实例，那么_source将被设置为_child_module.linear
+        这意味着我们正在处理一个已经被注入LoRA的模块，并且我们想要获取它内部的原始线性层。
+        如果_child_module不是LoraInjectedLinear的实例，那么_source将直接被设置为_child_module
+        这意味着我们正在处理一个普通的模块（如nn.Linear），而不是一个已经被注入LoRA的模块。
+        '''
 
         weight = _source.weight
         bias = _source.bias
@@ -830,6 +836,7 @@ def monkeypatch_or_replace_lora_extended(
         ):
             if len(loras[0].shape) != 2:
                 continue
+            #如果某个权重的形状与预期的模块不匹配，那么这个权重会被跳过，从而避免了可能的错误或不一致。
 
             _source = (
                 _child_module.linear
@@ -947,6 +954,7 @@ def monkeypatch_remove_lora(model):
         _module._modules[name] = _tmp
 
 
+#LoraInjectedLinear模块混合并更新LoRA权重
 def monkeypatch_add_lora(
     model,
     loras,
@@ -996,6 +1004,7 @@ def _ti_lora_path(path: str) -> str:
     return ".".join(path.split(".")[:-1] + ["ti", "pt"])
 
 
+#将学习到的词嵌入（embeddings）learned_embeds应用到CLIP模型的文本编码器text_encoder中。
 def apply_learned_embed_in_clip(
     learned_embeds,
     text_encoder,
@@ -1022,17 +1031,19 @@ def apply_learned_embed_in_clip(
         num_added_tokens = tokenizer.add_tokens(token)
 
         i = 1
+        #标记可能已经存在于分词器中 新增or替换
         if not idempotent:
             while num_added_tokens == 0:
                 print(f"The tokenizer already contains the token {token}.")
                 token = f"{token[:-1]}-{i}>"
+                #将原始标记的最后一个字符删除，并附加一个后缀-i>
                 print(f"Attempting to add the token {token}.")
                 num_added_tokens = tokenizer.add_tokens(token)
                 i += 1
         elif num_added_tokens == 0 and idempotent:
             print(f"The tokenizer already contains the token {token}.")
             print(f"Replacing {token} embedding.")
-
+        
         # resize the token embeddings
         text_encoder.resize_token_embeddings(len(tokenizer))
 
@@ -1122,6 +1133,7 @@ def patch_pipe(
         return tok_dict
 
 
+#计算LoRA的模块中权重的乘积，可用于了解LoRA权重如何改变原始模型的行为
 @torch.no_grad()
 def inspect_lora(model):
     moved = {}
