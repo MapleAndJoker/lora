@@ -1,6 +1,6 @@
-export MODEL_NAME="runwayml/stable-diffusion-inpainting"
-export INSTANCE_DIR="./data/data_captioned"
-export OUTPUT_DIR="./exps/krk_captioned_scale2"
+export MODEL_NAME="/root/.cache/huggingface/hub/models--runwayml--stable-diffusion-inpainting/stable-diffusion-inpainting"
+export INSTANCE_DIR="/root/fcc/code/lora/data/DHR"
+export OUTPUT_DIR="/root/fcc/code/lora/output/test"
 
 lora_pti \
   --pretrained_model_name_or_path=$MODEL_NAME  \
@@ -30,7 +30,7 @@ lora_pti \
   --clip_ti_decay \
   --weight_decay_ti=0.000 \
   --weight_decay_lora=0.000 \
-  --device="cuda:0" \
+  --device="cuda:2" \
   --lora_rank=8 \
   --use_face_segmentation_condition \
   --lora_dropout_p=0.1 \

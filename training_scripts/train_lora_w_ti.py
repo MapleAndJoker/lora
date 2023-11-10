@@ -637,13 +637,15 @@ def unfreeze_params(params):
 
 
 def main(args):
-    logging_dir = Path(args.output_dir, args.logging_dir)
+    #logging_dir = Path(args.output_dir, args.logging_dir)
+    project_dir = Path(args.output_dir, args.logging_dir)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with="tensorboard",
-        logging_dir=logging_dir,
+        project_dir=project_dir,
+        #logging_dir=logging_dir,
     )
 
     # Currently, it's not possible to do gradient accumulation when training two models with accelerate.accumulate
@@ -762,6 +764,7 @@ def main(args):
         args.pretrained_vae_name_or_path or args.pretrained_model_name_or_path,
         subfolder=None if args.pretrained_vae_name_or_path else "vae",
         revision=None if args.pretrained_vae_name_or_path else args.revision,
+        cross_attention_dim=1280,
     )
     unet = UNet2DConditionModel.from_pretrained(
         args.pretrained_model_name_or_path,
