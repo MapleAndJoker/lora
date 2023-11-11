@@ -764,7 +764,6 @@ def main(args):
         args.pretrained_vae_name_or_path or args.pretrained_model_name_or_path,
         subfolder=None if args.pretrained_vae_name_or_path else "vae",
         revision=None if args.pretrained_vae_name_or_path else args.revision,
-        cross_attention_dim=1280,
     )
     unet = UNet2DConditionModel.from_pretrained(
         args.pretrained_model_name_or_path,
